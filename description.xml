@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<description xmlns="http://openoffice.org/extensions/description/2006"
+xmlns:d="http://openoffice.org/extensions/description/2006"
+xmlns:xlink="http://www.w3.org/1999/xlink">
+
+  <version value="0.1" />
+
+  <identifier value="https://github.com/tlshtivo053153" />
+
+  <platform value="all" />
+
+  <publisher>
+    <name xlink:href="https://github.com/tlshtivo053153" lang="ja">tlshtivo053153</name>
+  </publisher>
+
+  <display-name>
+    <name lang="ja">SSJson-ext</name>
+  </display-name>
+
+  <extension-description>
+    <src xlink:href="description.txt" lang="ja" />
+  </extension-description>
+
+</description>
