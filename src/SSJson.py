@@ -6,6 +6,12 @@ from scriptforge import CreateScriptService
 import uno
 
 import pathlib
+import subprocess
+
+
+def ssjson_ext_version():
+    return 0.1
+
 
 def decorate_parser(f):
     def _wrapper(*args, **keywords):
@@ -85,9 +91,10 @@ def parse_ssjson(load_data):
 def run_parse_ssjson(ssjson):
     many_till(ssjson, key_value, eof)
     data = ssjson.get_parsed_data()
-    transpose_data = list(zip(*data))
-    s = to_object(ssjson, data)
-    return s
+    if data != None:
+        transpose_data = list(zip(*data))
+        s = to_object(ssjson, data)
+        return s
     
 
 # choice : SSJson -> [SSJson -> None] -> None
@@ -99,6 +106,7 @@ def choice(ssjson, parse_list):
             return None
         else:
             ssjson.resume_parse()
+    ssjson.fail_parse('fail all choice')
 
 
 # many_till : SSJson -> (SSJson -> None) -> (SSJson -> None) -> None
@@ -111,12 +119,12 @@ def many_till(ssjson, parse, end):
         else:
             ssjson.resume_parse()
             parse(ssjson)
-            header = ssjson.get_parsed_header
+            header = ssjson.get_parsed_header()
             data = ssjson.get_parsed_data()
             return [(header, data)] + loop()
     result  = loop()
-    h = list(map(lambda x: x[0], result))
-    d = list(map(lambda x: x[1], result))
+    h = list_map(ssjson, lambda x: x[0], result)
+    d = list_map(ssjson, lambda x: x[1], result)
     ssjson.success_parse(parsed_header = h, parsed_data = d)
 
 
@@ -150,7 +158,6 @@ def consume(ssjson, s):
 @decorate_parser
 def get_key(ssjson, s):
     satisfy(ssjson, lambda x: x.startswith(s))
-    #print(ssjson.get_parsed_header())
     header = ssjson.get_parsed_header()
     if header != None:
         header = ssjson.get_parsed_header()[len(s):]
@@ -168,8 +175,13 @@ def to_object(ssjson, s):
         else:
             return ""
     transpose_s = list(zip(*s))
-    return list(map(f, transpose_s))
+    return list_map(ssjson, f, transpose_s)
 
+@decorate_parser
+def ignore(ssjson):
+    consume(ssjson, "IGNORE")
+    data = ssjson.get_parsed_data()
+    ssjson.success_parse(parsed_data=list_map(ssjson, lambda x: "", data))
 
 # object: SSJson -> None
 @decorate_parser
@@ -195,17 +207,21 @@ def object_with_key(ssjson):
 @decorate_parser
 def to_array(ssjson, s):
     def f(a):
-        non_empty_str = filter(lambda x: x != "", a)
-        return "[ {:s} ]".format(", ".join(non_empty_str))
+        non_empty_str = list(filter(lambda x: x != "", a))
+        if non_empty_str == ['"EMPTY"']:
+            return "[]"
+        elif non_empty_str == []:
+            return ""
+        else:
+            return "[ {:s} ]".format(", ".join(non_empty_str))
     transpose_s = list(zip(*s))
-    return list(map(f, transpose_s))
+    return list_map(ssjson, f, transpose_s)
 
 
 @decorate_parser
 def array(ssjson):
     consume(ssjson, "START_ARRAY")
     many_till(ssjson, value, lambda x: consume(x, "END_ARRAY"))
-    data = ssjson.get_parsed_data()
 
 
 @decorate_parser
@@ -220,30 +236,130 @@ def array_with_key(ssjson):
 
 @decorate_parser
 def value(ssjson):
-    choice(ssjson, [p_object, array, lambda x: consume(x, "VALUE")])
+    choice(ssjson, [ignore, p_object, array, value_singleton])
+
+
+@decorate_parser
+def value_singleton(ssjson):
+    choice(ssjson, [value_raw, value_str, value_value])
+
+
+@decorate_parser
+def value_raw(ssjson):
+    consume(ssjson, "RAW")
+
+
+@decorate_parser
+def value_str(ssjson):
+    def f(x):
+        if x == "":
+            return ""
+        else:
+            return f'"{x}"'
+    consume(ssjson, "STR")
+    data = ssjson.get_parsed_data()
+    ssjson.success_parse(parsed_data=list_map(ssjson, f, data))
+
+
+@decorate_parser
+def value_value(ssjson):
+    def is_number(s):
+        try:
+            float(s)
+        except ValueError:
+            return False
+        except TypeError:
+            return False
+        else:
+            return True
+    def f(x):
+        if is_number(x) or (x == ''):
+           return x
+        elif x == 't':
+            return 'true'
+        elif x == 'f':
+            return 'false'
+        else:
+            return f'"{x}"'
+    consume(ssjson, "VALUE")
+    data = ssjson.get_parsed_data()
+    ssjson.success_parse(parsed_data=list_map(ssjson, f, data))
 
 
 @decorate_parser
 def key_value(ssjson):
-    choice(ssjson, [object_with_key, array_with_key, lambda x: get_key(x, "")])
+    choice(ssjson, [ignore, object_with_key, array_with_key, key_value_singleton])
     key = ssjson.get_parsed_header()
     data = ssjson.get_parsed_data()
     def f(x):
         if x:
-            return '"{:s}": {:s}'.format(key, x)
+            return f'"{key}": {x}'
         else:
             return ''
-    v = list(map(f, data))
+    v = list_map(ssjson, f, data)
     ssjson.success_parse(parsed_header = key, parsed_data = v)
 
 
+@decorate_parser
+def key_value_singleton(ssjson):
+    choice(ssjson, [key_value_raw, key_value_str, key_value_default])
+
+
+@decorate_parser
+def key_value_raw(ssjson):
+    get_key(ssjson, "RAW_")
+
+
+@decorate_parser
+def key_value_str(ssjson):
+    def f(x):
+        if not x == '':
+            return f'"{x}"'
+    get_key(ssjson, "STR_")
+    key = ssjson.get_parsed_header()
+    data = ssjson.get_parsed_data()
+    ssjson.success_parse(parsed_header=key, parsed_data=list_map(ssjson, f, data))
+
+
+@decorate_parser
+def key_value_default(ssjson):
+    def is_number(s):
+        try:
+            float(s)
+        except ValueError:
+            return False
+        except TypeError:
+            return False
+        else:
+            return True
+    def f(x):
+        if is_number(x) or (x == ''):
+           return x
+        elif x == 't':
+            return 'true'
+        elif x == 'f':
+            return 'false'
+        else:
+            return f'"{x}"'
+    get_key(ssjson, "")
+    key = ssjson.get_parsed_header()
+    data = ssjson.get_parsed_data()
+    ssjson.success_parse(parsed_header=key, parsed_data=list_map(ssjson, f, data))
+
+
+@decorate_parser
+def list_map(ssjson, f, data):
+    if data == None:
+        return None
+    else:
+        return list(map(f, data))
+
 class CellCoord:
     doc = CreateScriptService("Calc")
-    coord_r = 1
-    coord_c = 1
-    def __init__(self):
-        coord_r = 1
-        coord_c = 1
+    def __init__(self, r, c, s):
+        self.coord_r = r
+        self.coord_c = c
+        self.sheet = s
     def set_coord_row(self, r):
         self.coord_r = r
     def set_coord_column(self, c):
@@ -257,25 +373,22 @@ class CellCoord:
     def move_down(self):
         self.coord_r += 1
     def get_cell_value(self):
-        return self.doc.GetValue(self.doc.A1Style(self.coord_r, self.coord_c))
+        return self.doc.GetValue(self.doc.A1Style(self.coord_r, self.coord_c, sheetname=self.sheet))
     def set_cell_value(self, v):
-        self.doc.SetValue(self.doc.A1Style(self.coord_r, self.coord_c), v)
+        self.doc.SetValue(self.doc.A1Style(self.coord_r, self.coord_c, sheetname=self.sheet), v)
 
 class Option():
     def __init__(self, doc):
         self.output_dir = pathlib.Path(doc.GetValue('_Option.B3'))
-        self.json_formatter_path = pathlib.Path(doc.GetValue('_Option.B5'))
+        self.json_formatter_path = pathlib.Path(doc.GetValue('_Option.C3'))
+        self.ssjson_version = doc.GetValue('_Option.D3')
 
-def last_input_json_column():
-    start = "C3" # 3, 3
-    cc = CellCoord()
-    cc.coord_r = 3
-    cc.coord_c = 3
-    loop = True
-    end_c = 3
+def last_input_json_column(s):
+    # "C3"
+    cc = CellCoord(3, 3, s)
     if cc.get_cell_value() != "START_JSON":
         raise Exception
-    while loop:
+    while True:
         cc.move_right()
         v = cc.get_cell_value()
         if v == "END_JSON":
@@ -283,12 +396,9 @@ def last_input_json_column():
             break
     return end_c
 
-def last_input_type_row():
-    start = "D3" # 3, 4
-    cc = CellCoord()
-    cc.coord_r = 3
-    cc.coord_c = 4
-    end_r = 3
+def last_input_type_row(s):
+    # "D3"
+    cc = CellCoord(3, 4, s)
     while True:
         cc.move_down()
         v = cc.get_cell_value()
@@ -298,20 +408,28 @@ def last_input_type_row():
     return end_r
 
 def make_cdda_mod():
+    log_init()
     doc = CreateScriptService("Calc")
+    bas = CreateScriptService("Basic")
     option = Option(doc)
-    sheets = list(filter(lambda x: not x.startswith('_'), doc.Sheets))
+    if option.ssjson_version != ssjson_ext_version():
+        bas.MsgBox('excepted version {}. but extension version is {}'.format(option.ssjson_version, ssjson_ext_version()))
+        return None
+    sheets = filter(lambda x: not x.startswith('_'), doc.Sheets)
     inputs = []
     for s in sheets:
-        start = "D3"
-        end_r = last_input_type_row()
-        end_c = last_input_json_column()
-        input_range = doc.A1Style(3, 4, end_r, end_c, s)
-        input_data = doc.GetValue(input_range)
-        objs = parse_ssjson(input_data)
-        #filename = doc.GetValue(2, 4, sheetname=s)
+        log("load sheet: " + s)
         filename = doc.GetValue(s + ".B4")
-        inputs.append((option.output_dir/filename, objs))
+        if not filename == '':
+            start = "D3"
+            end_r = last_input_type_row(s)
+            end_c = last_input_json_column(s)
+            input_range = doc.A1Style(3, 4, end_r, end_c, s)
+            input_data = doc.GetValue(input_range)
+            objs = parse_ssjson(input_data)
+            inputs.append((option.output_dir/filename, objs))
+        else:
+            log("skip load: not input OUTPUT_PATH")
     outputs = {}
     for (f, objs) in inputs:
         if f in outputs.keys():
@@ -319,12 +437,31 @@ def make_cdda_mod():
         else:
             outputs[f] = objs
     for p, objs in outputs.items():
+        log("output to " + str(p))
         p.parent.mkdir(parents=True, exist_ok=True)
         if p.is_file():
             p.unlink()
         with p.open(mode='w') as f:
             json = '[ {} ]'.format(", ".join(objs))
-            f.write(json)
+            if option.json_formatter_path.is_file():
+                cmd = [option.json_formatter_path]
+                result = subprocess.run(cmd, input=json, text=True, capture_output=True)
+                f.write(result.stdout)
+            else:
+                f.write(json)
+    bas.MsgBox("end script")
+
+global g_cc_log
+
+def log(s):
+    g_cc_log.set_cell_value(s)
+    g_cc_log.move_down()
+
+def log_init():
+    global g_cc_log
+    g_cc_log = CellCoord(1, 1, "_Log")
+    g_cc_log.doc.ClearAll('$_Log.A:A')
+
 
 import unohelper
 g_ImplementationHelper = unohelper.ImplementationHelper()
