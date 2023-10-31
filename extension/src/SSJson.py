@@ -10,7 +10,7 @@ import subprocess
 
 
 def ssjson_ext_version():
-    return "v0.1.2"
+    return "v0.1.3"
 
 
 def decorate_parser(f):
