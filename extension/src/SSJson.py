@@ -68,7 +68,7 @@ class SSJson(object):
         self.success = False
         self.parsed_header = None
         self.parsed_data = None
-        if message != None:
+        if type(message) is str:
             self.fail_log.append(message)
         return None
     def add_fail_log(self, message):
@@ -283,6 +283,9 @@ def to_array(ssjson, s):
 def array(ssjson):
     start_array(ssjson)
     many_till(ssjson, value, end_array)
+    data = ssjson.get_parsed_data()
+    s = to_array(ssjson, data)
+    ssjson.success_parse(parsed_data = s)
 
 
 @decorate_parser
