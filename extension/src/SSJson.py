@@ -10,7 +10,7 @@ import subprocess
 
 
 def ssjson_ext_version():
-    return 0.1.1
+    return "v0.1.2"
 
 
 def decorate_parser(f):
@@ -183,11 +183,72 @@ def ignore(ssjson):
     data = ssjson.get_parsed_data()
     ssjson.success_parse(parsed_data=list_map(ssjson, lambda x: "", data))
 
+
+@decorate_parser
+def start_object(ssjson):
+    def f(x):
+        def g(y):
+            consume(y, x)
+        return g
+    start = map(f, ["START_OBJECT", "{"])
+    choice(ssjson, start)
+
+
+@decorate_parser
+def end_object(ssjson):
+    def f(x):
+        def g(y):
+            consume(y, x)
+        return g
+    end = map(f, ["END_OBJECT", "}"])
+    choice(ssjson, end)
+
+
+@decorate_parser
+def start_array(ssjson):
+    def f(x):
+        def g(y):
+            consume(y, x)
+        return g
+    start = map(f, ["START_ARRAY", "["])
+    choice(ssjson, start)
+
+
+@decorate_parser
+def end_array(ssjson):
+    def f(x):
+        def g(y):
+            consume(y, x)
+        return g
+    end = map(f, ["END_ARRAY", "]"])
+    choice(ssjson, end)
+
+
+@decorate_parser
+def key_start_object(ssjson):
+    def f(x):
+        def g(y):
+            get_key(y, x)
+        return g
+    start = map(f, ["START_OBJECT_", "{_"])
+    choice(ssjson, start)
+
+
+@decorate_parser
+def key_start_array(ssjson):
+    def f(x):
+        def g(y):
+            get_key(y, x)
+        return g
+    start = map(f, ["START_ARRAY_", "[_"])
+    choice(ssjson, start)
+
+
 # object: SSJson -> None
 @decorate_parser
 def p_object(ssjson):
-    consume(ssjson, "START_OBJECT")
-    many_till(ssjson, key_value, lambda x: consume(x, "END_OBJECT"))
+    start_object(ssjson)
+    many_till(ssjson, key_value, end_object)
     data = ssjson.get_parsed_data()
     s = to_object(ssjson, data)
     ssjson.success_parse(parsed_data = s)
@@ -195,9 +256,9 @@ def p_object(ssjson):
 
 @decorate_parser
 def object_with_key(ssjson):
-    get_key(ssjson, "START_OBJECT_")
+    key_start_object(ssjson)
     key = ssjson.get_parsed_header()
-    many_till(ssjson, key_value, lambda x: consume(x, "END_OBJECT"))
+    many_till(ssjson, key_value, end_object)
     data = ssjson.get_parsed_data()
     s = to_object(ssjson, data)
     ssjson.success_parse(parsed_header = key, parsed_data = s)
@@ -220,15 +281,15 @@ def to_array(ssjson, s):
 
 @decorate_parser
 def array(ssjson):
-    consume(ssjson, "START_ARRAY")
-    many_till(ssjson, value, lambda x: consume(x, "END_ARRAY"))
+    start_array(ssjson)
+    many_till(ssjson, value, end_array)
 
 
 @decorate_parser
 def array_with_key(ssjson):
-    get_key(ssjson, "START_ARRAY_")
+    key_start_array(ssjson)
     key = ssjson.get_parsed_header()
-    many_till(ssjson, value, lambda x: consume(x, "END_ARRAY"))
+    many_till(ssjson, value, end_array)
     data = ssjson.get_parsed_data()
     s = to_array(ssjson, data)
     ssjson.success_parse(parsed_header = key, parsed_data = s)
