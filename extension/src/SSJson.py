@@ -10,7 +10,7 @@ import subprocess
 
 
 def ssjson_ext_version():
-    return 0.1
+    return 0.1.1
 
 
 def decorate_parser(f):
@@ -413,7 +413,7 @@ def make_cdda_mod():
     bas = CreateScriptService("Basic")
     option = Option(doc)
     if option.ssjson_version != ssjson_ext_version():
-        bas.MsgBox('excepted version {}. but extension version is {}'.format(option.ssjson_version, ssjson_ext_version()))
+        bas.MsgBox('expected version {}. but extension version is {}'.format(option.ssjson_version, ssjson_ext_version()))
         return None
     sheets = filter(lambda x: not x.startswith('_'), doc.Sheets)
     inputs = []
