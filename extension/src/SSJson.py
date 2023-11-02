@@ -268,7 +268,8 @@ def object_with_key(ssjson):
 @decorate_parser
 def to_array(ssjson, s):
     def f(a):
-        non_empty_str = list(filter(lambda x: x != "", a))
+        non_empty_str = filter(lambda x: x != "", a)
+        non_empty_str = list(map(lambda x: str(x), non_empty_str))
         if non_empty_str == ['"EMPTY"']:
             return "[]"
         elif non_empty_str == []:
